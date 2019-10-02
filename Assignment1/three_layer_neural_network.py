@@ -116,12 +116,14 @@ class NeuralNetwork(object):
         '''
 
         # YOU IMPLEMENT YOUR feedforward HERE
-
-        # self.z1 =
-        # self.a1 =
-        # self.z2 =
-        # self.probs =
-        return None
+        # A @ B is the same as np.dot(A,B)
+        self.z1 = (X @ self.W1) + self.b1
+        # Acitvation function
+        self.a1 = actFun(self.z1)
+        self.z2 = np.dot(self.z1, self.W2) + self.b2
+        # Softmax function. Transposes done for broadcasting purposes.
+        sumExpZ2 = np.sum(np.exp(self.z2), axis=1)
+        self.probs = (np.exp(self.z2).T / sumExpZ2).T
 
     def calculate_loss(self, X, y):
         '''
@@ -136,7 +138,7 @@ class NeuralNetwork(object):
 
         # YOU IMPLEMENT YOUR CALCULATION OF THE LOSS HERE
 
-        # data_loss =
+        # data_loss = (-1 / num_examples) *
 
         # Add regulatization term to loss (optional)
         data_loss += self.reg_lambda / 2 * (np.sum(np.square(self.W1)) + np.sum(np.square(self.W2)))
@@ -210,11 +212,12 @@ class NeuralNetwork(object):
 def main():
     # generate and visualize Make-Moons dataset
     X, y = generate_data()
+
     # plt.scatter(X[:, 0], X[:, 1], s=40, c=y, cmap=plt.cm.Spectral)
     # plt.show()
 
-    # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3 , nn_output_dim=2, actFun_type='tanh')
-    # model.fit_model(X,y)
+    model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3 , nn_output_dim=2, actFun_type='tanh')
+    model.fit_model(X,y)
     # model.visualize_decision_boundary(X,y)
 
 if __name__ == "__main__":
