@@ -76,7 +76,7 @@ def main():
 
     # FILL IN THE CODE BELOW TO BUILD YOUR NETWORK
 
-    # placeholders for input data and input labeles
+    # placeholders for input data and input labels
     x =
     y_ =
 

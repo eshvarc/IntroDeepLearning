@@ -1,7 +1,10 @@
+from three_layer_neural_network import NeuralNetwork
+
 __author__ = 'tan_nguyen'
 import numpy as np
 from sklearn import datasets, linear_model
 import matplotlib.pyplot as plt
+
 
 def generate_data():
     '''
@@ -11,6 +14,7 @@ def generate_data():
     np.random.seed(0)
     X, y = datasets.make_moons(200, noise=0.20)
     return X, y
+
 
 def plot_decision_boundary(pred_func, X, y):
     '''
@@ -34,37 +38,30 @@ def plot_decision_boundary(pred_func, X, y):
     plt.scatter(X[:, 0], X[:, 1], c=y, cmap=plt.cm.Spectral)
     plt.show()
 
+
 ########################################################################################################################
 ########################################################################################################################
 # YOUR ASSSIGMENT STARTS HERE
 # FOLLOW THE INSTRUCTION BELOW TO BUILD AND TRAIN A 3-LAYER NEURAL NETWORK
 ########################################################################################################################
 ########################################################################################################################
-class NeuralNetwork(object):
-    """
-    This class builds and trains a neural network
-    """
-    def __init__(self, nn_input_dim, nn_hidden_dim , nn_output_dim, actFun_type='tanh', reg_lambda=0.01, seed=0):
+class DeepNetwork(NeuralNetwork):
+    def __init__(self, num_layers, layer_dims, actFun_type='tanh', reg_lambda=0.01, seed=0):
         '''
-        :param nn_input_dim: input dimension
-        :param nn_hidden_dim: the number of hidden units
-        :param nn_output_dim: output dimension
+        :param num_layers: the number of layers in the network including the input and output layers.
+        :param layer_dims: a list of the number of units in each layer.
         :param actFun_type: type of activation function. 3 options: 'tanh', 'sigmoid', 'relu'
         :param reg_lambda: regularization coefficient
         :param seed: random seed
         '''
-        self.nn_input_dim = nn_input_dim
-        self.nn_hidden_dim = nn_hidden_dim
-        self.nn_output_dim = nn_output_dim
+        self.num_layers = num_layers
+        self.layer_dims = layer_dims
         self.actFun_type = actFun_type
         self.reg_lambda = reg_lambda
-        
+
         # initialize the weights and biases in the network
-        np.random.seed(seed)
-        self.W1 = np.random.randn(self.nn_input_dim, self.nn_hidden_dim) / np.sqrt(self.nn_input_dim)
-        self.b1 = np.zeros((1, self.nn_hidden_dim))
-        self.W2 = np.random.randn(self.nn_hidden_dim, self.nn_output_dim) / np.sqrt(self.nn_hidden_dim)
-        self.b2 = np.zeros((1, self.nn_output_dim))
+        self.layers = [Layer(layer_dims[i], layer_dims[i + 1], actFun_type, reg_lambda, seed)
+                       for i in range(self.num_layers - 1)]
 
     def actFun(self, z, type):
         '''
@@ -106,24 +103,10 @@ class NeuralNetwork(object):
         :param actFun: activation function
         :return:
         '''
-
-        # YOU IMPLEMENT YOUR feedforward HERE
-        # A @ B is the same as np.dot(A,B)
-        self.z1 = (X @ self.W1) + self.b1
-        # Acitvation function
-        self.a1 = actFun(self.z1)
-        # Affine transform with weights and bias obtained from joining hidden and final layer.
-        self.z2 = np.dot(self.a1, self.W2) + self.b2
-        # Softmax function - computing the numerator. We subtract by the maximum component out of each component in the
-        # z2 vector. This allows numerical stability while maintaining the probabilities.
-        self.probs = np.exp(self.z2 - np.max(self.z2, axis=1, keepdims=True))
-        # Divide by the denominator i.e. the sum of all the individual numerators (components => axis 1).
-        self.probs /= np.sum(self.probs, axis=1, keepdims=True)
-
-        # Side note: The keepdims=True flag keeps the resultant in the right shape for broadcasting. Eg: The shape of
-        # self.z2 is (200, 2). The np.max(z2, axis=1) operator would return a vector (200,). This vector cannot be
-        # directly subtracted. However, if the np.max(z2, axis=1, keepdims=True) operator is used, the result is a
-        # (200, 1) "matrix" that can be broadcasted (and therefore directly subtracted).
+        self.layers[0].feedforward(X, actFun)
+        for i in range(1, self.num_layers - 1):
+            self.layers[i].feedforward(self.layers[i - 1].a1, actFun)
+        self.probs = self.layers[-1].feedforwardsoftmax(self.layers[-2].a1)
 
     def calculate_loss(self, X, y):
         '''
@@ -147,7 +130,8 @@ class NeuralNetwork(object):
         data_loss = -np.sum(np.log(self.probs[np.arange(self.probs.shape[0]), y]))
 
         # Add regulatization term to loss (optional)
-        data_loss += self.reg_lambda / 2 * (np.sum(np.square(self.W1)) + np.sum(np.square(self.W2)))
+        reg_sum = sum([np.sum(np.square(layer.W1)) for layer in self.layers])
+        data_loss += self.reg_lambda / 2 * reg_sum
         return (1. / num_examples) * data_loss
 
     def predict(self, X):
@@ -166,28 +150,10 @@ class NeuralNetwork(object):
         :param y: given labels
         :return: dL/dW1, dL/b1, dL/dW2, dL/db2
         '''
-
-        # IMPLEMENT YOUR BACKPROP HERE
-        dLdz2 = self.probs.copy()
-        N = X.shape[0]
-        dLdz2[np.arange(N), y] -= 1
-        dLdz2 /= 1. * N
-
-        dW2 = self.a1.T @ dLdz2
-
-        db2 = np.sum(dLdz2, axis=0)
-
-        dLda1 = dLdz2 @ self.W2.T
-
-        da1dz1 = self.diff_actFun(self.z1, self.actFun_type)
-        dLdz1 = dLda1 * da1dz1
-
-        dW1 = X.T @ dLdz1
-
-        db1 = np.sum(dLdz1, axis=0)
-
-        # print(f"db1 {db1}, db2 {db2}")
-        return dW1, dW2, db1, db2
+        self.layers[-1].backpropsoftmax(self.layers[-1].cache, y)
+        for i in range(len(self.layers) - 2, -1, -1):
+            layer = self.layers[i]
+            layer.backprop((layer.cache, self.layers[i + 1].W1), self.layers[i + 1].dout)
 
     def fit_model(self, X, y, epsilon=0.01, num_passes=20000, print_loss=True):
         '''
@@ -203,17 +169,14 @@ class NeuralNetwork(object):
             # Forward propagation
             self.feedforward(X, lambda x: self.actFun(x, type=self.actFun_type))
             # Backpropagation
-            dW1, dW2, db1, db2 = self.backprop(X, y)
+            self.backprop(X, y)
 
-            # Add derivatives of regularization terms (b1 and b2 don't have regularization terms)
-            dW2 += self.reg_lambda * self.W2
-            dW1 += self.reg_lambda * self.W1
+            for layer in self.layers:
+                layer.dW1 += self.reg_lambda * layer.W1
 
-            # Gradient descent parameter update
-            self.W1 += -epsilon * dW1
-            self.b1 += -epsilon * db1
-            self.W2 += -epsilon * dW2
-            self.b2 += -epsilon * db2
+                # Gradient descent parameter update
+                layer.W1 += -epsilon * layer.dW1
+                layer.b1 += -epsilon * layer.db1
 
             # Optionally print the loss.
             # This is expensive because it uses the whole dataset, so we don't want to do it too often.
@@ -229,6 +192,55 @@ class NeuralNetwork(object):
         '''
         plot_decision_boundary(lambda x: self.predict(x), X, y)
 
+
+
+
+class Layer(NeuralNetwork):
+    def __init__(self, nn_first_dim, nn_second_dim, actFun_type, reg_lambda, seed):
+        self.nn_first_dim = nn_first_dim
+        self.nn_second_dim = nn_second_dim
+        self.actFun_type = actFun_type
+        self.reg_lambda = reg_lambda
+
+        # initialize the weights and biases in the network
+        np.random.seed(seed)
+        self.W1 = np.random.randn(self.nn_first_dim, self.nn_second_dim) / np.sqrt(self.nn_first_dim)
+        self.b1 = np.zeros((1, self.nn_second_dim))
+
+    def feedforward(self, input, actFun):
+        # A @ B is the same as np.dot(A,B)
+        self.z1 = (input @ self.W1) + self.b1
+        # Acitvation function
+        self.a1 = actFun(self.z1)
+        self.cache = input
+
+    def feedforwardsoftmax(self, input):
+        self.z1 = (input @ self.W1) + self.b1
+        self.cache = input
+        self.probs = np.exp(self.z1 - np.max(self.z1, axis=1, keepdims=True))
+        self.probs /= np.sum(self.probs, axis=1, keepdims=True)
+        return self.probs
+
+    def backprop(self, input, dout):
+        dLda1 = dout @ input[1].T
+        da1dz1 = self.diff_actFun(self.z1, self.actFun_type)
+        self.dout = dLda1 * da1dz1
+
+        self.dW1 = input[0].T @ self.dout
+        self.db1 = np.sum(self.dout, axis=0)
+
+    def backpropsoftmax(self, input, y):
+        self.dout = self.probs.copy()
+        N = input.shape[0]
+        self.dout[np.arange(N), y] -= 1
+        self.dout /= 1. * N
+
+        self.dW1 = input.T @ self.dout
+        self.db1 = np.sum(self.dout, axis=0)
+
+
+
+
 def main():
     # generate and visualize Make-Moons dataset
     X, y = generate_data()
@@ -236,15 +248,18 @@ def main():
     # plt.scatter(X[:, 0], X[:, 1], s=40, c=y, cmap=plt.cm.Spectral)
     # plt.show()
 
-    model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3 , nn_output_dim=2, actFun_type='tanh')
+    # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3 , nn_output_dim=2, actFun_type='tanh')
     # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3, nn_output_dim=2, actFun_type='sigmoid')
     # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3, nn_output_dim=2, actFun_type='relu')
 
     # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=200, nn_output_dim=2, actFun_type='tanh')
     # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=200, nn_output_dim=2, actFun_type='sigmoid')
     # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=200, nn_output_dim=2, actFun_type='relu')
-    model.fit_model(X,y)
-    model.visualize_decision_boundary(X,y)
+
+    model = DeepNetwork(num_layers=3, layer_dims=[2, 100, 2], actFun_type='tanh')
+    model.fit_model(X, y)
+    model.visualize_decision_boundary(X, y)
+
 
 if __name__ == "__main__":
     main()
